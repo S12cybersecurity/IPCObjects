@@ -1,154 +1,114 @@
 #include <Windows.h>
-#include <unordered_map>
-#include <vector>
 #include <iostream>
+#include <vector>
 
 using namespace std;
 
 class Serialitzator {
 private:
-	string fileName;
+    string fileName;
+
 public:
-	// Constructor
-	Serialitzator(string fileName) {
-		this->fileName = fileName;
-	}
+    // Constructor
+    Serialitzator(string fileName) : fileName(fileName) {}
 
-	// Getters
-	string getFileName() {
-		return this->fileName;
-	}
-	// Setters
-	void setFileName(string fileName) {
-		this->fileName = fileName;
-	}
+    // Getters
+    string getFileName() const {
+        return fileName;
+    }
 
-	// Methods
-	bool serializeHandle(HANDLE targetHandle) {
-		HANDLE mappedFile = NULL;
-		LPVOID mappedView;
-		mappedFile = CreateFileMappingA(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, 0, sizeof(targetHandle), "ipcObject");
-		if (mappedFile == NULL) {
-			cout << "Error creating the mapped file";
-			return false;
-		}
+    // Setters
+    void setFileName(string fileName) {
+        this->fileName = fileName;
+    }
 
-		mappedView = MapViewOfFile(mappedFile, FILE_MAP_WRITE, 0, 0, sizeof(targetHandle));
-		if (mappedView == NULL) {
-			cout << "Error creating the view";
-			return false;
-		}
+    // Métodos
+    bool serializeHandle(HANDLE targetHandle) {
+        HANDLE mappedFile = CreateFileMappingA(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, 0, sizeof(targetHandle), "ipcObject");
 
-		RtlMoveMemory(mappedView, &targetHandle, sizeof(targetHandle));
-		UnmapViewOfFile(mappedView);
-		return true;
-	}
+        if (mappedFile == NULL) {
+            cout << "Error creating the mapped file";
+            return false;
+        }
 
-	HANDLE deserialitzateHandle(string mappedFileName) {
-		HANDLE mappedFile = NULL;
-		LPVOID mappedView;
-		mappedFile = OpenFileMappingA(FILE_MAP_WRITE, FALSE, mappedFileName.c_str());
-		if (mappedFile == NULL) {
-			cout << "Error opening the Mapped File";
-			return mappedFile;
-		}
+        LPVOID mappedView = MapViewOfFile(mappedFile, FILE_MAP_WRITE, 0, 0, sizeof(targetHandle));
 
-		mappedView = MapViewOfFile(mappedFile, FILE_MAP_WRITE, 0, 0, sizeof(mappedFile));
-		if (mappedView == NULL) {
-			cout << "Error creating the view";
-			return mappedFile;
-		}
+        if (mappedView == NULL) {
+            cout << "Error creating the view";
+            CloseHandle(mappedFile);
+            return false;
+        }
 
-		HANDLE targetHandle;
-		RtlMoveMemory(&targetHandle, mappedView, sizeof(mappedFile));
-		UnmapViewOfFile(mappedView);
-		return targetHandle;
-	}
+        RtlMoveMemory(mappedView, &targetHandle, sizeof(targetHandle));
+        UnmapViewOfFile(mappedView);
+        CloseHandle(mappedFile);
 
-	bool serializeHashMap(unordered_map<string, vector<string>> targetHashMap, LPVOID mappedFileView) {
-		// Serialize the size of the hashmap
-		int hashMapSize = targetHashMap.size();
-		RtlMoveMemory(mappedFileView, &hashMapSize, sizeof(hashMapSize));
-		mappedFileView = (LPVOID)((DWORD)mappedFileView + sizeof(hashMapSize));
+        return true;
+    }
 
-		// Serialize the hashmap
-		for (auto it = targetHashMap.begin(); it != targetHashMap.end(); it++) {
-			// Serialize the key
-			int keySize = it->first.size();
-			RtlMoveMemory(mappedFileView, &keySize, sizeof(keySize));
-			mappedFileView = (LPVOID)((DWORD)mappedFileView + sizeof(keySize));
-			RtlMoveMemory(mappedFileView, it->first.c_str(), keySize * sizeof(wchar_t));
-			mappedFileView = (LPVOID)((DWORD)mappedFileView + keySize * sizeof(wchar_t));
+    HANDLE deserializeHandle() {
+        HANDLE mappedFile = OpenFileMappingA(FILE_MAP_READ, FALSE, "ipcObject");
 
-			// Serialize the vector
-			int vectorSize = it->second.size();
-			RtlMoveMemory(mappedFileView, &vectorSize, sizeof(vectorSize));
-			mappedFileView = (LPVOID)((DWORD)mappedFileView + sizeof(vectorSize));
-			for (int i = 0; i < vectorSize; i++) {
-				int stringSize = it->second[i].size();
-				RtlMoveMemory(mappedFileView, &stringSize, sizeof(stringSize));
-				mappedFileView = (LPVOID)((DWORD)mappedFileView + sizeof(stringSize));
-				RtlMoveMemory(mappedFileView, it->second[i].c_str(), stringSize * sizeof(wchar_t));
-				mappedFileView = (LPVOID)((DWORD)mappedFileView + stringSize * sizeof(wchar_t));
-			}
-		}
-		return true;
-	}
+        if (mappedFile == NULL) {
+            cout << "Error opening the Mapped File";
+            return nullptr;
+        }
+
+        LPVOID mappedView = MapViewOfFile(mappedFile, FILE_MAP_READ, 0, 0, sizeof(HANDLE));
+
+        if (mappedView == NULL) {
+            cout << "Error creating the view";
+            CloseHandle(mappedFile);
+            return nullptr;
+        }
+
+        HANDLE targetHandle;
+        RtlMoveMemory(&targetHandle, mappedView, sizeof(targetHandle));
+        UnmapViewOfFile(mappedView);
+        CloseHandle(mappedFile);
+
+        return targetHandle;
+    }
+
+    int serializeVectorString(const vector<string>& strings, string fileName) {
+        string serializedData;
+        for (size_t i = 0; i < strings.size(); ++i) {
+            serializedData += strings[i];
+            if (i < strings.size() - 1) {
+                serializedData += ','; 
+            }
+        }
+
+        HANDLE fileMapping = CreateFileMappingA(INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE, 0, serializedData.size(), fileName.c_str());
+        LPVOID mappedView = MapViewOfFile(fileMapping, FILE_MAP_WRITE,0,0,0);
+        memcpy(mappedView, serializedData.data(), serializedData.size());
+        return 0;
+    }
 
 
-	unordered_map<string, vector<string>> deserialitzateHashMap(string mappedFileName) {
-		HANDLE mappedFile = OpenFileMappingA(FILE_MAP_READ, FALSE, mappedFileName.c_str());
-		if (mappedFile == NULL) {
-			cout << "Error opening the Mapped File";
-			return unordered_map<string, vector<string>>();
-		}
 
-		LPVOID mappedView = MapViewOfFile(mappedFile, FILE_MAP_READ, 0, 0, 0);
-		if (mappedView == NULL) {
-			cout << "Error creating the view";
-			CloseHandle(mappedFile);
-			return unordered_map<string, vector<string>>();
-		}
+    vector<string> deserializeStringVector(string fileName) {
+        HANDLE fileMapping = OpenFileMappingA(FILE_MAP_READ, FALSE, fileName.c_str());
 
-		unordered_map<string, vector<string>> targetHashMap;
-		// Deserialize the size of the hashmap
-		int hashMapSize;
-		RtlMoveMemory(&hashMapSize, mappedView, sizeof(hashMapSize));
-		mappedView = (LPVOID)((DWORD)mappedView + sizeof(hashMapSize));
+        LPVOID mappedView = MapViewOfFile(fileMapping, FILE_MAP_READ, 0, 0, 0);
 
-		// Deserialize the hashmap
-		for (int i = 0; i < hashMapSize; i++) {
-			// Deserialize the key
-			int keySize;
-			RtlMoveMemory(&keySize, mappedView, sizeof(keySize));
-			mappedView = (LPVOID)((DWORD)mappedView + sizeof(keySize));
-			char* key = new char[keySize + 1];
-			RtlMoveMemory(key, mappedView, keySize);
-			key[keySize] = '\0';  // Null-terminate the key
-			mappedView = (LPVOID)((DWORD)mappedView + keySize);
+        string serializedData(static_cast<const char*>(mappedView));
 
-			// Deserialize the vector
-			int vectorSize;
-			RtlMoveMemory(&vectorSize, mappedView, sizeof(vectorSize));
-			mappedView = (LPVOID)((DWORD)mappedView + sizeof(vectorSize));
-			vector<string> targetVector;
-			for (int j = 0; j < vectorSize; j++) {
-				int stringSize;
-				RtlMoveMemory(&stringSize, mappedView, sizeof(stringSize));
-				mappedView = (LPVOID)((DWORD)mappedView + sizeof(stringSize));
-				char* str = new char[stringSize + 1];
-				RtlMoveMemory(str, mappedView, stringSize);
-				str[stringSize] = '\0';  // Null-terminate the string
-				mappedView = (LPVOID)((DWORD)mappedView + stringSize);
-				targetVector.push_back(str);
-				delete[] str;  // Free the allocated memory
-			}
-			targetHashMap[key] = targetVector;
-			delete[] key;  // Free the allocated memory
-		}
+        vector<string> deserializedData;
+        size_t pos = 0;
+        string token;
+        while ((pos = serializedData.find(',')) != std::string::npos) {
+            token = serializedData.substr(0, pos);
+            deserializedData.push_back(token);
+            serializedData.erase(0, pos + 1);
+        }
 
-		CloseHandle(mappedFile);
-		return targetHashMap;
-	}
+        if (!serializedData.empty()) {
+            deserializedData.push_back(serializedData);
+        }
+
+        return deserializedData;
+    }
+
 
 };
